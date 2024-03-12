@@ -1,4 +1,5 @@
 # QUEST: A High-Performance Query Engine for Streaming Tensor Data
+<img width="82" src="https://github.com/aocsa/quest/assets/3615859/65720d2c-e49a-42be-9059-4173232ef2af">  
 
 *Note*: This project is currently in development. Features and documentation are being actively worked on, and the API may undergo significant changes. We welcome contributors and feedback from the community to help shape QUEST into a robust and versatile tool.
 
