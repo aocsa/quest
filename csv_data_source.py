@@ -2,14 +2,17 @@ import os
 from dataclasses import dataclass
 from typing import Optional, List
 
+import torch
 import numpy as np
 import pyarrow as pa
-
+import pandas as pd
 from data_source import DataSource
-from field_vector import ArrowFieldVector, numpy_dtype_to_arrow_dtype
+from field_vector import FieldVector
 from field_vector import Field
 from record_batch import RecordBatch
 from schema import Schema
+from dtypes import numpy_dtype_to_arrow_dtype
+from tensor_df_utils import tensor_to_strings
 
 
 def read_csv_schema(filename: str, delimiter: str) -> Schema:
@@ -84,22 +87,23 @@ class CsvDataSource(DataSource):
     def __str__(self) -> str:
         return f'CsvDataSource("{self.filename}")';
 
-
-def read_csv(filename: str, delimiter: str = ',') -> [ArrowFieldVector]:
-    import pandas as pd
-    df = pd.read_csv(filename, delimiter=delimiter)
+def convert_df_to_afv(df:pd.DataFrame) -> List[FieldVector]:
     columns = df.columns
-    data = [[] for _ in columns]
-    fields = [[] for _ in columns]
-    # dtype = [('id', 'i4'), ('name', 'U10'), ('dept', 'i4'), ('salary', 'f4'), ('tax', 'i4')]
-    for index, col_name in enumerate(columns):
-        data[index] = df[col_name].to_numpy()
-        fields[index] = Field(col_name, numpy_dtype_to_arrow_dtype(df[col_name].dtype))
-    return [ArrowFieldVector(array=column, field=field) for field, column in zip(fields, data)]
+    field_vectors = []
+    for col_name in columns:
+        array = df[col_name].to_numpy()
+        field = Field(col_name, numpy_dtype_to_arrow_dtype(array.dtype))
+        field_vector = FieldVector(FieldVector.np_to_tensor(array), field)
+        field_vectors.append(field_vector)
+    return field_vectors
 
 
-def read_csv_in_batches(filename: str, delimiter: str, batch_size: int) -> [ArrowFieldVector]:
-    import pandas as pd
+def read_csv(filename: str, delimiter: str = ',') -> List[FieldVector]:
+    df = pd.read_csv(filename, delimiter=delimiter)
+    return convert_df_to_afv(df)
+
+
+def read_csv_in_batches(filename: str, delimiter: str, batch_size: int) -> List[FieldVector]:
     # Use chunksize to read the file in chunks.
     # Each chunk will be a DataFrame with 'batch_size' rows.
     for chunk in pd.read_csv(filename, delimiter=delimiter, chunksize=batch_size):
@@ -107,12 +111,7 @@ def read_csv_in_batches(filename: str, delimiter: str, batch_size: int) -> [Arro
         columns = chunk.columns
         for start_row in range(0, chunk.shape[0], batch_size):
             batch_data = chunk.iloc[start_row:start_row + batch_size]
-            # Splitting the chunk into batches if chunk size > batch size, 
-            # although here each "chunk" is essentially a batch due to how we read the file.
-            fields = [Field(col_name, numpy_dtype_to_arrow_dtype(batch_data[col_name].dtype))
-                      for col_name in columns]
-            data = [batch_data[col_name].to_numpy() for col_name in columns]
-            yield [ArrowFieldVector(column, field) for column, field in zip(data, fields)]
+            yield convert_df_to_afv(batch_data)
 
 
 def test_read_csv():
@@ -122,8 +121,8 @@ def test_read_csv():
     file_content = """
     column1,column2
     1,a
-    2,b
-    3,c
+    2,bcd
+    3,cdefg
     """
     # Writing the content to the file
     with open(filename, "w") as file:
@@ -140,18 +139,26 @@ def test_read_csv():
     ]
     expected_data = [
         np.array([1, 2, 3]),  # Example data for column1
-        np.array(["a", "b", "c"]),  # Example data for column2
-        # Add more arrays based on your CSV structure
+        np.array(["a", "bcd", "cdefg"]),  # Example data for column2
+    ]
+
+    expected_data = [
+        FieldVector.np_to_tensor(expected_data[0]),  
+        FieldVector.np_to_tensor(expected_data[1]),   
     ]
 
     assert len(result) == len(expected_fields), "Number of fields mismatch"
 
-    for arrow_array, expected_field, expected_column_data in zip(result, expected_fields, expected_data):
-        assert arrow_array.name() == expected_field.name, "Field name mismatch"
-        assert arrow_array.dtype() == expected_field.dtype, "Data type mismatch"
-        np.testing.assert_array_equal(arrow_array.array, expected_column_data, "Column data mismatch")
-
+    for column, expected_field, expected_column_data in zip(result, expected_fields, expected_data):        
+        assert column.field().name == expected_field.name, "Field name mismatch"
+        assert column.field().dtype == expected_field.dtype, "Data type mismatch"
+        np.testing.assert_array_equal(column.data(), expected_column_data, "Column data mismatch")
+    index = 0
     csv_source = CsvDataSource(filename=filename, settings=CsvParserSettings(batch_size=1))
     for batch in csv_source.scan(['column2']):
         record_batch: RecordBatch = batch
-        assert record_batch.column(0).data() in ["a", "b", "c"]
+        print(record_batch)
+        read_string_column = tensor_to_strings(record_batch.column(0).data())
+        expected_string_column = tensor_to_strings(expected_data[1][index])
+        assert read_string_column == expected_string_column, "Column data mismatch"
+        index += 1

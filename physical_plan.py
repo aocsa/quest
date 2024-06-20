@@ -1,11 +1,10 @@
 from typing import List
 
 from data_source import DataSource
-from expression import *
+from expression_eval import *
 from logical_expr import *
 from logical_plan import LogicalPlan, Scan, Selection, Projection
 from schema import Schema
-
 
 class PhysicalPlan(ABC):
     @abstractmethod
@@ -65,18 +64,25 @@ class SelectionExec(PhysicalPlan):
         return [self.input]
 
     def execute(self) -> List[RecordBatch]:
-        import numpy as np
+        import torch
         # The actual implementation will depend on how `Expression` evaluates batches
         input_result = self.input.execute()
         # Example filtering logic, assuming input_result is iterable
         for batch in input_result:
             bit_mask: ColumnVector = self.expr.evaluate(batch)
-            indices = np.nonzero(bit_mask.data())
+            print("bit_mask:", bit_mask.data())
+            indices = torch.nonzero(bit_mask.data())
+            print("indices:", indices)
             new_columns: List[ColumnVector] = []
             for index, column in enumerate(batch.columns_):
-                if len(indices[0]) > 0:
-                    col = np.take(batch.column(index).data(), indices)
-                    vector = ArrowFieldVector(array=col, field=column.field())
+                if not indices.numel() == 0:
+                    # Expanding and then flattening the 2D tensor to 1D
+                    indices = indices.expand(1, -1).flatten()
+                    print("indices:", indices)
+                    print("column:", column.data())
+                          
+                    col = torch.index_select(column.data(), dim=0, index=indices)
+                    vector = FieldVector(array=col, field=column.field())
                     new_columns.append(vector)
             if len(new_columns) > 0 and new_columns[0].size() > 0:
                 rb = RecordBatch(batch.schema(), new_columns)
@@ -93,10 +99,8 @@ class ProjectionExec(PhysicalPlan):
         self.expressions = expressions
 
     def execute(self) -> List[RecordBatch]:
-        batches = self.input.execute()
         result = []
-
-        for batch in batches:
+        for batch in self.input.execute():
             columns = [expression.evaluate(batch) for expression in self.expressions]
             result.append(RecordBatch(self.schema, columns))
 

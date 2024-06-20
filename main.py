@@ -4,7 +4,7 @@ from physical_plan import *
 if __name__ == '__main__':
     # SELECT *
     # from employee WHERE
-    # salary = 100
+    # salary = Moore
     # OR
     # tax = 40
 
@@ -13,7 +13,7 @@ if __name__ == '__main__':
     csv_source = CsvDataSource(filename=filename, settings=CsvParserSettings(batch_size=1))
     scan = Scan("employee", csv_source, None)
 
-    salary_filter_expression = eq(col("salary"), lit(200))
+    salary_filter_expression = eq(col("name"), lit("Moore"))
     tax_filter_expression = eq(col("tax"), lit(40))
     filter_expression = Or(salary_filter_expression, tax_filter_expression)
 
@@ -26,4 +26,4 @@ if __name__ == '__main__':
     print(physical_plan)
     query_result = physical_plan.execute()
     for (i, batch) in enumerate(query_result):
-        print(f"batch {i}| data {batch}")
+        print(f"{batch}")

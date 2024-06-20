@@ -2,10 +2,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
+import torch
 import pyarrow as pa
 
-from field_vector import Field, ColumnVector, LiteralValueVector, ArrowFieldVector, numpy_dtype_to_arrow_dtype
+from field_vector import Field, ColumnVector, LiteralValueVector, FieldVector, numpy_dtype_to_arrow_dtype
 from record_batch import RecordBatch
 
 
@@ -28,7 +28,7 @@ class LiteralExpression(Expression):
         val = np.repeat(self.value, 1)
 
         dtype = numpy_dtype_to_arrow_dtype(val.dtype)
-        return LiteralValueVector(dtype, self.value, input.row_count())  # Assuming a compatible constructor
+        return LiteralValueVector(dtype, self.value, input.num_rows())  # Assuming a compatible constructor
 
     def __str__(self) -> str:
         return str(self.value)
@@ -54,17 +54,16 @@ class BooleanExpression(Expression):
         ll = self.left.evaluate(input)
         rr = self.right.evaluate(input)
         np_bool_arr = self.evaluate_boolean_expression(ll.data(), rr.data())
-        assert np_bool_arr.dtype == np.bool_
         assert len(np_bool_arr) == ll.size()
         assert len(np_bool_arr) == rr.size()
-        return ArrowFieldVector(array=np_bool_arr, field=Field("result", pa.bool_))
+        return FieldVector(array=np_bool_arr, field=Field("result", pa.bool_))
 
-    def evaluate_boolean_expression(self, l: np.ndarray, r: np.ndarray) -> np.ndarray:
+    def evaluate_boolean_expression(self, l: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
         pass
 
 
 class AndExpression(BooleanExpression):
-    def evaluate_boolean_expression(self, l: np.ndarray, r: np.ndarray) -> np.ndarray:
+    def evaluate_boolean_expression(self, l: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
         return l.__and__(r)
 
     def __str__(self) -> str:
@@ -72,7 +71,7 @@ class AndExpression(BooleanExpression):
 
 
 class OrExpression(BooleanExpression):
-    def evaluate_boolean_expression(self, l: np.ndarray, r: np.ndarray) -> np.ndarray:
+    def evaluate_boolean_expression(self, l: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
         return l.__or__(r)
 
     def __str__(self) -> str:
@@ -80,7 +79,7 @@ class OrExpression(BooleanExpression):
 
 
 class EqExpression(BooleanExpression):
-    def evaluate_boolean_expression(self, l: np.ndarray, r: np.ndarray) -> np.ndarray:
+    def evaluate_boolean_expression(self, l: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
         return l.__eq__(r)
 
     def __str__(self) -> str:
@@ -88,7 +87,7 @@ class EqExpression(BooleanExpression):
 
 
 class NeqExpression(BooleanExpression):
-    def evaluate_boolean_expression(self, l: np.ndarray, r: np.ndarray) -> np.ndarray:
+    def evaluate_boolean_expression(self, l: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
         return l.__ne__(r)
 
     def __str__(self) -> str:
@@ -96,7 +95,7 @@ class NeqExpression(BooleanExpression):
 
 
 class LtExpression(BooleanExpression):
-    def evaluate_boolean_expression(self, l: np.ndarray, r: np.ndarray) -> np.ndarray:
+    def evaluate_boolean_expression(self, l: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
         return l.__lt__(r)
 
     def __str__(self) -> str:
@@ -104,7 +103,7 @@ class LtExpression(BooleanExpression):
 
 
 class LtEqExpression(BooleanExpression):
-    def evaluate_boolean_expression(self, l: np.ndarray, r: np.ndarray) -> np.ndarray:
+    def evaluate_boolean_expression(self, l: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
         return l.__le__(r)
 
     def __str__(self) -> str:
@@ -112,7 +111,7 @@ class LtEqExpression(BooleanExpression):
 
 
 class GtExpression(BooleanExpression):
-    def evaluate_boolean_expression(self, l: np.ndarray, r: np.ndarray) -> np.ndarray:
+    def evaluate_boolean_expression(self, l: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
         return l.__gt__(r)
 
     def __str__(self) -> str:
@@ -120,7 +119,7 @@ class GtExpression(BooleanExpression):
 
 
 class GtEqExpression(BooleanExpression):
-    def evaluate_boolean_expression(self, l: np.ndarray, r: np.ndarray) -> np.ndarray:
+    def evaluate_boolean_expression(self, l: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
         return l.__ge__(r)
 
     def __str__(self) -> str:

@@ -2,8 +2,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
+import torch
 import pyarrow as pa
+import numpy as np
+from dtypes import numpy_dtype_to_arrow_dtype
+from tensor_df_utils import tensor_to_strings, strings_to_tensor
 
 ArrowType = pa.DataType
 
@@ -28,7 +31,7 @@ class ColumnVector(ABC):
         pass
 
     @abstractmethod
-    def data(self) -> np.ndarray:
+    def data(self) -> torch.Tensor:
         pass
 
     @abstractmethod
@@ -36,32 +39,49 @@ class ColumnVector(ABC):
         pass
 
 
-class ArrowFieldVector(ColumnVector):
+class FieldVector(ColumnVector):
 
-    def __init__(self, array: np.ndarray, field: Field):
-        self.array = array
+    def __init__(self, array: torch.Tensor, field: Field):
+        self.array_ = array
         self.field_ = field
 
-    def dtype(self):
-        return self.field_.dtype
-
-    def name(self):
+    def name(self) -> int:
         return self.field_.name
+
+    def dtype(self) -> int:
+        return self.field_.dtype
 
     def field(self) -> Field:
         return self.field_
 
     def get_value(self, i: int):
-        return self.array[i]
+        return self.array_[i]
 
     def size(self) -> int:
-        return len(self.array)
+        return len(self.array_)
 
-    def data(self) -> np.ndarray:
-        return self.array
+    def data(self) -> torch.Tensor:
+        return self.array_
 
     def __str__(self) -> str:
-        return f"{self.array}"
+        return f"{self.array_}"
+
+    @staticmethod
+    def np_to_tensor(array: np.ndarray) -> torch.Tensor:
+        field_dtype = numpy_dtype_to_arrow_dtype(array.dtype)
+        tensor = None
+        if field_dtype == pa.string():
+            tensor = strings_to_tensor(array)
+        else:
+            tensor = torch.from_numpy(array)
+        return tensor
+    
+    @staticmethod
+    def to_numpy(vector: 'FieldVector') -> np.ndarray:
+        if vector.dtype() == pa.string():
+            return np.array(tensor_to_strings(vector.data()))
+        else:
+            return vector.data().numpy()
 
 
 @dataclass
@@ -79,33 +99,5 @@ class LiteralValueVector(ColumnVector):
     def size(self) -> int:
         return self.num_rows
 
-    def data(self) -> np.ndarray:
-        return np.repeat(self.value, self.size())
-
-
-def numpy_dtype_to_arrow_dtype(numpy_dtype) -> pa.DataType:
-    """
-    Maps a NumPy dtype to an Apache Arrow data type.
-
-    Parameters:
-    - numpy_dtype: A NumPy data type (np.dtype).
-
-    Returns:
-    - An Apache Arrow data type (pa.DataType).
-    """
-    if numpy_dtype == np.dtype('int32'):
-        return pa.int32()
-    elif numpy_dtype == np.dtype('int64'):
-        return pa.int64()
-    elif numpy_dtype == np.dtype('float32'):
-        return pa.float32()
-    elif numpy_dtype == np.dtype('float64'):
-        return pa.float64()
-    elif numpy_dtype == np.dtype('bool'):
-        return pa.bool_()
-    elif numpy_dtype == np.dtype('object') or numpy_dtype.type == np.str_ or numpy_dtype.kind == 'U':
-        return pa.string()
-    elif numpy_dtype == np.dtype('datetime64[ms]'):
-        return pa.timestamp('ms')
-    else:
-        raise ValueError(f"Unsupported NumPy dtype: {numpy_dtype}")
+    def data(self) -> torch.Tensor:
+        return FieldVector.np_to_tensor(np.repeat(self.value, self.size()))

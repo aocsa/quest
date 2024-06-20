@@ -9,6 +9,9 @@ class Schema:
     def __init__(self, fields: List[Field]) -> None:
         self.fields = fields
 
+    def field(self, i: int) -> Field:
+        return self.fields[i]
+
     def project(self, indices: List[int]) -> 'Schema':
         projected_fields: List[Field] = [self.fields[index] for index in indices]
         return Schema(projected_fields)
